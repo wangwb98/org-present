@@ -83,36 +83,52 @@
 
 (make-variable-buffer-local 'org-present-mode)
 
+(defun org-present-get-top-level ()
+  "If presenting a subtree, it's the top heading level of the subtree. Otherwise nil"
+  (save-excursion
+    (goto-char (point-min))
+    (if (org-at-heading-p)
+        (org-current-level)
+      nil)))
+
 (defun org-present-top ()
   "Jump to current top-level heading, should be safe outside a heading."
   (unless (org-at-heading-p) (outline-previous-heading))
   (let ((level (org-current-level)))
-    (when (and level (> level 1))
+    (when (and level (> level (if org-present-top-level
+                                  (1+ org-present-top-level) 1)))
       (outline-up-heading (- level 1) t))))
 
 (defun org-present-next ()
   "Jump to next top-level heading."
   (interactive)
   (widen)
-  (if (org-current-level) ;inside any heading
+  (if (and (org-current-level)
+           (not (eq (org-current-level) org-present-top-level))) ;inside any heading (except  top heading)
       (progn
         (org-present-top)
-        (or
-         (org-get-next-sibling) ;next top-level heading
-         (org-present-top)))    ;if that was last, go back to top before narrow
+        (if (save-excursion
+              (org-get-next-sibling))
+            (org-get-next-sibling)  ;next top-level heading
+          (org-present-top)))    ;if that was last, go back to top before narrow
     ;; else handle title page before first heading
-    (outline-next-heading))
+    (unless (save-excursion
+              (outline-next-heading)
+              (and org-present-top-level (<= (org-current-level) org-present-top-level)))
+      (outline-next-heading)))
   (org-present-narrow)
   (org-present-run-after-navigate-functions))
 
 (defun org-present-prev ()
   "Jump to previous top-level heading."
   (interactive)
-  (if (org-current-level)
+  (if (and (org-current-level)
+           (not (eq (org-current-level) org-present-top-level)))
       (progn
         (widen)
         (org-present-top)
-        (org-get-last-sibling)))
+        (org-get-previous-sibling)
+        ))
   (org-present-narrow)
   (org-present-run-after-navigate-functions))
 
@@ -121,11 +137,13 @@
   (if (org-current-level)
       (progn
         (org-narrow-to-subtree)
-        (show-all))
-    ;; else narrow to area before first heading
-    (outline-next-heading)
-    (narrow-to-region (point-min) (point))
-    (goto-char (point-min))))
+        (show-all)))
+  (if (eq (org-current-level) org-present-top-level) ;; top header or no header (nil)
+      ;; narrow to area before next heading
+      (progn
+        (outline-next-heading)
+        (narrow-to-region (point-min) (point))
+        (goto-char (point-min)))))
 
 (defun org-present-beginning ()
   "Jump to first slide of presentation."
@@ -247,6 +265,7 @@ makes tabs work in presentation mode as in the rest of Org mode.")
   (setq org-present-mode t)
   (org-present-add-overlays)
   (run-hooks 'org-present-mode-hook)
+  (setq-local org-present-top-level (org-present-get-top-level))
   (org-present-narrow)
   (org-present-run-after-navigate-functions))
 
@@ -266,6 +285,7 @@ makes tabs work in presentation mode as in the rest of Org mode.")
   (org-present-small)
   (org-present-rm-overlays)
   (widen)
+  (setq-local org-present-top-level nil)
   ;; Exit from read-only mode before exiting the minor mode
   (when buffer-read-only
     (org-present-read-write))
